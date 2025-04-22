@@ -215,8 +215,7 @@ ggplot(top_players, aes(x = reorder(batter, total_bangs), y = total_bangs)) +
 ```
 
 ```{r bangs-by-lineup-position}
-# Assuming the data contains lineup position information
-# If not, this would need to be adjusted or removed
+# Data Line up by position
 bangs_by_position <- bangs_clean %>%
   group_by(lineup_position) %>%
   summarize(
@@ -263,7 +262,6 @@ ggplot(bangs_by_inning, aes(x = as.factor(inning), y = total_bangs)) +
 
 ```{r bangs-by-score-differential}
 # Analyze bangs by score differential
-# Assuming the data contains score information
 bangs_by_score <- bangs_clean %>%
   mutate(score_diff = astros_score - opponent_score) %>%
   group_by(score_diff) %>%
@@ -296,7 +294,7 @@ home_away_stats <- player_stats_clean %>%
     ops = obp + slg
   )
 
-# Create a tidy format for plotting
+# Tidy format for plotting
 home_away_tidy <- home_away_stats %>%
   pivot_longer(
     cols = c(batting_avg, obp, slg, ops),
@@ -379,7 +377,6 @@ print(correlation)
 
 ```{r bang-vs-no-bang-performance}
 # Compare batting performance with and without bangs
-# This assumes you have at-bat level data that indicates whether a bang occurred
 performance_comparison <- player_stats_clean %>%
   group_by(has_bang) %>%
   summarize(
@@ -465,7 +462,6 @@ ggplot(top_improvers, aes(x = reorder(batter, avg_difference), y = avg_differenc
 
 ```{r bang-effectiveness-by-pitch}
 # Analyze effectiveness of bangs by pitch type
-# This assumes pitch-by-pitch data is available
 pitch_effectiveness <- pitch_data %>%
   filter(!is.na(has_bang)) %>%
   group_by(pitch_type, has_bang) %>%
@@ -501,7 +497,6 @@ Let's perform statistical tests to determine if the differences we observed are 
 
 ```{r t-test-batting-avg}
 # Perform t-test comparing batting average with and without bangs
-# This assumes you have at-bat level data with bang indicators
 t_test_result <- t.test(
   player_stats_clean$batting_avg[player_stats_clean$has_bang == TRUE],
   player_stats_clean$batting_avg[player_stats_clean$has_bang == FALSE]
@@ -509,7 +504,7 @@ t_test_result <- t.test(
 
 print(t_test_result)
 
-# Create a table to display the results
+# Table to display the results
 t_test_table <- tibble(
   Metric = "Batting Average",
   With_Bang = mean(player_stats_clean$batting_avg[player_stats_clean$has_bang == TRUE], na.rm = TRUE),
@@ -533,7 +528,7 @@ regression_model <- lm(batting_avg ~ has_bang + opponent + inning + outs + runne
 model_summary <- summary(regression_model)
 print(model_summary)
 
-# Create a table of model coefficients
+# Table of model coefficients
 model_coefs <- tidy(regression_model) %>%
   filter(term %in% c("(Intercept)", "has_bangTRUE")) %>%
   select(term, estimate, std.error, p.value)
@@ -549,10 +544,7 @@ kable(model_coefs,
 
 ```{r crawfish-boxes-recreation}
 # Recreate some of the analyses from crawfishboxes.com
-# This is a placeholder - you would need to adjust based on available data
-
-# Create a heatmap of bang frequency by count (balls and strikes)
-# Assuming the data contains balls and strikes information
+# Heatmap of bang frequency by count (balls and strikes)
 bang_heatmap <- bangs_clean %>%
   group_by(balls, strikes) %>%
   summarize(
@@ -577,7 +569,6 @@ ggplot(bang_heatmap, aes(x = as.factor(strikes), y = as.factor(balls), fill = ba
   )
 
 # Analyze effectiveness against different pitchers
-# This would require additional data on opposing pitchers
 pitcher_effectiveness <- bangs_clean %>%
   group_by(opposing_pitcher) %>%
   summarize(
@@ -611,8 +602,6 @@ ggplot(top_targeted_pitchers, aes(x = reorder(opposing_pitcher, bang_rate), y = 
 ```
 
 # Discussion of Findings
-
-In this section, you will summarize your key findings and interpret what they mean in the context of the sign-stealing scandal. Some points to consider:
 
 - Did the data show a statistically significant improvement in batting performance when bangs were used?
 - Which players benefited the most from the system?
