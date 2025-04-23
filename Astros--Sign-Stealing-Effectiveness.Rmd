@@ -88,23 +88,26 @@ head(player_stats)
 
 
 
-
 ```{r data-cleaning}
+# First, inspect the date formats to ensure proper conversion
+head(bangs_data$game_date)
+head(player_stats$Date)
+head(game_results$Date)
 
+# Clean and transform the bangs data
 bangs_clean <- bangs_data %>%
-  
-  mutate(game_date = mdy(game_date)) %>%
-
+  # Using as.Date() which is more flexible with date formats
+  mutate(game_date = as.Date(game_date)) %>%
   mutate(
     month = month(game_date, label = TRUE),
     home_away = if_else(grepl("vs", opponent), "Home", "Away")
   )
 
+# Clean player stats data
 player_stats_clean <- player_stats %>%
-  mutate(
-    game_date = mdy(Date)
-  )
-   
+  mutate(game_date = as.Date(Date))
+
+# Summarize bangs by game and batter
 bangs_summary <- bangs_data %>%
   group_by(game_date, batter) %>%  
   summarize(
@@ -112,33 +115,54 @@ bangs_summary <- bangs_data %>%
     .groups = 'drop'
   )
 
-player_stats_clean <- player_stats %>%
+# Join player stats with bangs data
+# Make sure we have the correct columns selected for joining
+player_stats_with_bangs <- player_stats_clean %>%
   left_join(
-    bangs_clean %>% select(),
-    by = c("game_date", "batter")
+    bangs_clean %>% 
+      select(game_date, batter, pitch_category), # Select columns needed from bangs data
+    by = c("game_date" = "game_date", "Player" = "batter")
   )
 
+# Create player-level summary of bangs
 player_bangs_summary <- bangs_clean %>%
   group_by(batter) %>%
   summarize(
     total_bangs = n(),
-    avg_bangs_per_game = n() / n_distinct(game_date)
+    avg_bangs_per_game = n() / n_distinct(game_date),
+    .groups = 'drop'
   ) %>%
   arrange(desc(total_bangs))
 
+# Convert the Date column in game_results with explicit format handling
+game_results_clean <- game_results %>%
+  
+  # For MM/DD/YYYY format:
+  mutate(game_date = as.Date(Date, format = "%m/%d/%Y")) %>%
+ 
+  select(-Date)  
+
+# Create game-level summary and join with game results
 game_bangs_summary <- bangs_clean %>%
   group_by(game_date, opponent) %>%
   summarize(
-    total_bangs = n()
+    total_bangs = n(),
+    .groups = 'drop'
   ) %>%
-  left_join(game_results, by = "game_date") %>%
-  mutate(result = if_else(astros_score > opponent_score, "Win", "Loss"))
+  # Join using game_date now that it exists in both dataframes
+  left_join(game_results_clean, by = "game_date") %>%
+  # Use R and RA columns for determining wins/losses
+  mutate(result = if_else(R > RA, "Win", "Loss"))
 
+# Check for NA values in the cleaned datasets
+cat("NA values in bangs_clean:", sum(is.na(bangs_clean)), "\n")
+cat("NA values in player_stats_clean:", sum(is.na(player_stats_clean)), "\n")
+cat("NA values in game_bangs_summary:", sum(is.na(game_bangs_summary)), "\n")
 
-sum(is.na(bangs_clean))
-sum(is.na(player_stats_clean))
-sum(is.na(game_bangs_summary))
- 
+# View the structure of the cleaned datasets
+glimpse(bangs_clean)
+glimpse(player_stats_clean)
+glimpse(game_bangs_summary)
 ```
 
 
