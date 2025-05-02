@@ -26,7 +26,6 @@ library(patchwork)
 
 ## Background
 
-
 The 2017 Houston Astros' won the World Series, but their victory was later tainted when they were accused of cheating their way to victory. The team would relay pitch signals via trash can bangs. A bang typically indicated an off-speed pitch, while no bang indicated a fastball.
 
 In 2020, the MLB confirmed these allegations following an investigation. The scandal resulted in the suspension of manager A.J. Hinch and general manager.
@@ -35,21 +34,20 @@ In 2020, the MLB confirmed these allegations following an investigation. The sca
 
 We aim to quantify the impact of their sign-stealing system and if it actually imporved batting performance. We can combine data on trash bang occurrences and available player statistics.
 
-
 ##Questions
 
-1. Did batters perform better during at-bats with trash can bangs?
-2. Did a higher frequency of bangs per game translate to more wins?
-3. How many home runs were hit when bangs were detected versus without bangs?
-4. Which players received the most benefit from the banging system?
-5. Did the effectiveness of bangs change over the course of the season?
-6. Was there a difference in impact based on pitch type?
+1.  Did batters perform better during at-bats with trash can bangs?
+2.  Did a higher frequency of bangs per game translate to more wins?
+3.  How many home runs were hit when bangs were detected versus without bangs?
+4.  Which players received the most benefit from the banging system?
+5.  Did the effectiveness of bangs change over the course of the season?
+6.  Was there a difference in impact based on pitch type?
 
 ## Data Sources
 
-- **Bang Data**: A dataset compiled by a fan who reviewed footage of all Astros' home games from the 2017 season. This data is available at [signstealingscandal.com](https://signstealingscandal.com/).
-- **Player Statistics**: Game-by-game and pitch-by-pitch data from [baseball-reference.com](https://www.baseball-reference.com/) and [retrosheet.org](https://www.retrosheet.org/)
-- **Advanced Metrics**: Additional analysis and visualizations from [crawfishboxes.com](https://www.crawfishboxes.com/2020/1/29/21114099/advanced-data-on-the-astros-cheating-how-often-main-culprits-what-effect)
+-   **Bang Data**: A dataset compiled by a fan who reviewed footage of all Astros' home games from the 2017 season. This data is available at [signstealingscandal.com](https://signstealingscandal.com/).
+-   **Player Statistics**: Game-by-game and pitch-by-pitch data from [baseball-reference.com](https://www.baseball-reference.com/) and [retrosheet.org](https://www.retrosheet.org/)
+-   **Advanced Metrics**: Additional analysis and visualizations from [crawfishboxes.com](https://www.crawfishboxes.com/2020/1/29/21114099/advanced-data-on-the-astros-cheating-how-often-main-culprits-what-effect)
 
 # Data Preparation
 
@@ -86,25 +84,34 @@ head(player_files)
 head(player_stats)
 ```
 
-
-
-
 ```{r data-cleaning}
+# First, inspect the date formats to ensure proper conversion
+head(bangs_data$game_date)
+head(player_stats$Date)
+head(game_results$Date)
 
+# Clean and transform the bangs data
 bangs_clean <- bangs_data %>%
-  
-  mutate(game_date = mdy(game_date)) %>%
-
+  mutate(game_date = as.Date(game_date)) %>%
   mutate(
     month = month(game_date, label = TRUE),
     home_away = if_else(grepl("vs", opponent), "Home", "Away")
   )
 
+# Clean player stats data
 player_stats_clean <- player_stats %>%
   mutate(
-    game_date = mdy(Date)
+    game_date = as.Date(Date),
+    Player = case_when(             
+      grepl("altuve", Player) ~ "Jose Altuve",
+      grepl("correa", Player) ~ "Carlos Correa",
+      grepl("bregman", Player) ~ "Alex Bregman",
+      grepl("gonzalez", Player) ~ "Marwin Gonzalez",
+      grepl("gurriel", Player) ~ "Yuli Gurriel",
+      TRUE ~ Player
+    )
   )
-   
+# Summarize bangs by game and batter
 bangs_summary <- bangs_data %>%
   group_by(game_date, batter) %>%  
   summarize(
@@ -112,35 +119,63 @@ bangs_summary <- bangs_data %>%
     .groups = 'drop'
   )
 
-player_stats_clean <- player_stats %>%
+
+player_stats_with_bangs <- player_stats_clean %>%
   left_join(
-    bangs_clean %>% select(),
-    by = c("game_date", "batter")
+    bangs_clean %>% select(game_date, batter, has_bangs, bangs),
+    by = c("game_date" = "game_date", "Player" = "batter")
+  )
+player_stats_with_bangs <- player_stats_with_bangs %>%
+  mutate(
+    batting_avg = H / AB
   )
 
+# Create player-level summary of bangs
 player_bangs_summary <- bangs_clean %>%
   group_by(batter) %>%
   summarize(
     total_bangs = n(),
-    avg_bangs_per_game = n() / n_distinct(game_date)
+    avg_bangs_per_game = n() / n_distinct(game_date),
+    .groups = 'drop'
   ) %>%
   arrange(desc(total_bangs))
 
-game_bangs_summary <- bangs_clean %>%
-  group_by(game_date, opponent) %>%
-  summarize(
-    total_bangs = n()
+# Convert the Date column in game_results with explicit format handling
+game_results_clean <- game_results %>%
+  mutate(
+    Date_clean = str_remove(Date, "^[A-Za-z]+\\s+"),  # Now "Apr 3"
+    Date_full = paste(Date_clean, "2017"),
+    game_date = mdy(Date_full),     
+    Opp = str_squish(str_trim(Opp))
   ) %>%
-  left_join(game_results, by = "game_date") %>%
-  mutate(result = if_else(astros_score > opponent_score, "Win", "Loss"))
+  filter(!is.na(game_date))
+
+# Create game-level summary and join with game results
+game_bangs_summary <- bangs_clean %>%
+  group_by(game_date) %>%
+  summarize(
+    total_bangs = n(),
+    .groups = "drop"
+  ) %>%
+  left_join(game_results_clean, by = "game_date") %>%
+  mutate(result = case_when(
+    R > RA ~ "Win",
+    R < RA ~ "Loss",
+    R == RA ~ "Tie",
+    TRUE ~ NA_character_
+  ))
 
 
-sum(is.na(bangs_clean))
-sum(is.na(player_stats_clean))
-sum(is.na(game_bangs_summary))
- 
+# Check for NA values in the cleaned datasets
+cat("NA values in bangs_clean:", sum(is.na(bangs_clean)), "\n")
+cat("NA values in player_stats_clean:", sum(is.na(player_stats_clean)), "\n")
+cat("NA values in game_bangs_summary:", sum(is.na(game_bangs_summary)), "\n")
+
+# View the structure of the cleaned datasets
+glimpse(bangs_clean)
+glimpse(player_stats_clean)
+glimpse(game_bangs_summary)
 ```
-
 
 ## Overall Bang Frequency
 
@@ -214,30 +249,6 @@ ggplot(top_players, aes(x = reorder(batter, total_bangs), y = total_bangs)) +
   )
 ```
 
-```{r bangs-by-lineup-position}
-# Data Line up by position
-bangs_by_position <- bangs_clean %>%
-  group_by(lineup_position) %>%
-  summarize(
-    total_bangs = n(),
-    players = n_distinct(batter)
-  ) %>%
-  mutate(bangs_per_player = total_bangs / players)
-
-ggplot(bangs_by_position, aes(x = as.factor(lineup_position), y = bangs_per_player)) +
-  geom_col(fill = "#002D62") +
-  labs(
-    title = "Average Bangs per Player by Lineup Position",
-    x = "Lineup Position",
-    y = "Bangs per Player"
-  ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(face = "bold", size = 16),
-    axis.title = element_text(size = 12)
-  )
-```
-
 ## Game Situation Analysis
 
 ```{r bangs-by-inning}
@@ -263,7 +274,7 @@ ggplot(bangs_by_inning, aes(x = as.factor(inning), y = total_bangs)) +
 ```{r bangs-by-score-differential}
 # Analyze bangs by score differential
 bangs_by_score <- bangs_clean %>%
-  mutate(score_diff = astros_score - opponent_score) %>%
+  mutate(score_diff = final_home_runs - final_away_runs) %>%
   group_by(score_diff) %>%
   summarize(total_bangs = n())
 
@@ -284,11 +295,27 @@ ggplot(bangs_by_score, aes(x = score_diff, y = total_bangs)) +
 ```{r home-away-comparison}
 # Compare home vs away performance
 # Note: The sign stealing system was primarily used at home
+player_stats_clean <- player_stats_clean %>%
+  mutate(
+    home_away = case_when(
+      ...6 == "@" ~ "Away",
+      is.na(...6) ~ "Home",
+      TRUE ~ NA_character_
+    )
+  )
+
+
 home_away_stats <- player_stats_clean %>%
   group_by(home_away) %>%
   summarize(
     games = n_distinct(game_date),
-    batting_avg = sum(hits) / sum(at_bats),
+    batting_avg = sum(H) / sum(AB),
+    hits = sum (H),
+    at_bats = sum (AB),
+    walks = sum(BB),
+    hbp = sum(HBP),
+    sacrifice_flies = sum(SF),
+    total_bases = sum(TB),
     obp = sum(hits + walks + hbp) / sum(at_bats + walks + hbp + sacrifice_flies),
     slg = sum(total_bases) / sum(at_bats),
     ops = obp + slg
@@ -352,7 +379,7 @@ ggplot(bangs_vs_wins, aes(x = result, y = avg_bangs_per_game, fill = result)) +
 
 ```{r correlation-bangs-runs}
 # Analyze correlation between bangs and runs scored
-ggplot(game_bangs_summary, aes(x = total_bangs, y = astros_score)) +
+ggplot(game_bangs_summary, aes(x = total_bangs, y = R)) +
   geom_point(aes(color = result), size = 3, alpha = 0.7) +
   geom_smooth(method = "lm", color = "black", se = TRUE) +
   scale_color_manual(values = c("Win" = "#002D62", "Loss" = "#EB6E1F")) +
@@ -369,7 +396,11 @@ ggplot(game_bangs_summary, aes(x = total_bangs, y = astros_score)) +
   )
 
 # Calculate correlation coefficient
-correlation <- cor.test(game_bangs_summary$total_bangs, game_bangs_summary$astros_score)
+correlation <- cor.test(
+  ~ total_bangs + R,
+  data = game_bangs_summary %>% filter(!is.na(total_bangs), !is.na(R))
+)
+
 print(correlation)
 ```
 
@@ -377,18 +408,24 @@ print(correlation)
 
 ```{r bang-vs-no-bang-performance}
 # Compare batting performance with and without bangs
-performance_comparison <- player_stats_clean %>%
-  group_by(has_bang) %>%
+performance_comparison <- player_stats_with_bangs %>%
+  filter(has_bangs %in% c("y", "n")) %>%
+  group_by(has_bangs) %>%
   summarize(
-    at_bats = sum(at_bats),
-    hits = sum(hits),
-    home_runs = sum(home_runs),
+    at_bats = sum(AB, na.rm = TRUE),
+    hits = sum(H, na.rm = TRUE),
+    home_runs = sum(HR, na.rm = TRUE),
+    walks = sum(BB, na.rm = TRUE),
+    hbp = sum(HBP, na.rm = TRUE),
+    sacrifice_flies = sum(SF, na.rm = TRUE),
+    total_bases = sum(TB, na.rm = TRUE),
     batting_avg = hits / at_bats,
     hr_rate = home_runs / at_bats,
-    obp = sum(hits + walks + hbp) / sum(at_bats + walks + hbp + sacrifice_flies),
-    slg = sum(total_bases) / sum(at_bats),
+    obp = (hits + walks + hbp) / (at_bats + walks + hbp + sacrifice_flies),
+    slg = total_bases / at_bats,
     ops = obp + slg
   )
+
 
 # Create a tidy format for plotting
 performance_tidy <- performance_comparison %>%
@@ -398,10 +435,10 @@ performance_tidy <- performance_comparison %>%
     values_to = "value"
   )
 
-ggplot(performance_tidy, aes(x = metric, y = value, fill = has_bang)) +
+ggplot(performance_tidy, aes(x = metric, y = value, fill = has_bangs)) +
   geom_col(position = "dodge") +
-  scale_fill_manual(values = c("TRUE" = "#002D62", "FALSE" = "#EB6E1F"), 
-                    labels = c("TRUE" = "With Bang", "FALSE" = "Without Bang")) +
+  scale_fill_manual(values = c("n" = "#002D62", "y" = "#EB6E1F"), 
+                    labels = c("y" = "With Bang", "n" = "Without Bang")) +
   labs(
     title = "Astros Batting Performance With vs. Without Bangs",
     x = "Metric",
@@ -417,21 +454,22 @@ ggplot(performance_tidy, aes(x = metric, y = value, fill = has_bang)) +
 
 ```{r player-performance-difference}
 # Calculate performance difference by player (with vs without bangs)
-player_difference <- player_stats_clean %>%
-  group_by(batter, has_bang) %>%
+player_difference <- player_stats_with_bangs %>%
+  group_by(Player, has_bangs) %>%
   summarize(
-    at_bats = sum(at_bats),
-    hits = sum(hits),
-    batting_avg = hits / at_bats
+    at_bats = sum(AB),
+    hits = sum(H),
+    batting_avg = hits / at_bats,
+    .groups = "drop"
   ) %>%
   pivot_wider(
-    names_from = has_bang,
+    names_from = has_bangs,
     values_from = c(at_bats, hits, batting_avg),
-    names_glue = "{.value}_{has_bang}"
+    names_glue = "{.value}_{has_bangs}"
   ) %>%
   mutate(
-    avg_difference = batting_avg_TRUE - batting_avg_FALSE,
-    sufficient_sample = (at_bats_TRUE >= 20 & at_bats_FALSE >= 20)
+    avg_difference = batting_avg_y - batting_avg_n,
+    sufficient_sample = (at_bats_y >= 20 & at_bats_n >= 20)
   ) %>%
   filter(sufficient_sample) %>%
   arrange(desc(avg_difference))
@@ -440,7 +478,7 @@ player_difference <- player_stats_clean %>%
 top_improvers <- player_difference %>%
   top_n(10, avg_difference)
 
-ggplot(top_improvers, aes(x = reorder(batter, avg_difference), y = avg_difference)) +
+ggplot(top_improvers, aes(x = reorder(Player, avg_difference), y = avg_difference)) +
   geom_col(fill = "#002D62") +
   geom_text(aes(label = round(avg_difference, 3)), hjust = -0.2) +
   labs(
@@ -458,65 +496,33 @@ ggplot(top_improvers, aes(x = reorder(batter, avg_difference), y = avg_differenc
   )
 ```
 
-## Pitch Type Analysis
-
-```{r bang-effectiveness-by-pitch}
-# Analyze effectiveness of bangs by pitch type
-pitch_effectiveness <- pitch_data %>%
-  filter(!is.na(has_bang)) %>%
-  group_by(pitch_type, has_bang) %>%
-  summarize(
-    pitches = n(),
-    swings = sum(swing),
-    hits = sum(hit),
-    swing_rate = swings / pitches,
-    hit_rate = hits / swings
-  )
-
-# Plot hit rate by pitch type and bang status
-ggplot(pitch_effectiveness, aes(x = pitch_type, y = hit_rate, fill = has_bang)) +
-  geom_col(position = "dodge") +
-  scale_fill_manual(values = c("TRUE" = "#002D62", "FALSE" = "#EB6E1F"), 
-                    labels = c("TRUE" = "With Bang", "FALSE" = "Without Bang")) +
-  labs(
-    title = "Hit Rate by Pitch Type and Bang Status",
-    x = "Pitch Type",
-    y = "Hit Rate (Hits/Swings)",
-    fill = "Bang Status"
-  ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(face = "bold", size = 16),
-    axis.title = element_text(size = 12)
-  )
-```
-
 # Statistical Analysis
 
 Let's perform statistical tests to determine if the differences we observed are statistically significant.
 
 ```{r t-test-batting-avg}
-# Perform t-test comparing batting average with and without bangs
-t_test_result <- t.test(
-  player_stats_clean$batting_avg[player_stats_clean$has_bang == TRUE],
-  player_stats_clean$batting_avg[player_stats_clean$has_bang == FALSE]
-)
+t_test_data <- player_stats_with_bangs %>%
+  filter(has_bangs %in% c("y", "n"), AB > 0) %>%
+  mutate(batting_avg = H / AB)
 
-print(t_test_result)
 
-# Table to display the results
+t_test_result <- t.test(batting_avg ~ has_bangs, data = t_test_data)
+
+
 t_test_table <- tibble(
   Metric = "Batting Average",
-  With_Bang = mean(player_stats_clean$batting_avg[player_stats_clean$has_bang == TRUE], na.rm = TRUE),
-  Without_Bang = mean(player_stats_clean$batting_avg[player_stats_clean$has_bang == FALSE], na.rm = TRUE),
+  With_Bang = mean(t_test_data$batting_avg[t_test_data$has_bangs == "y"], na.rm = TRUE),
+  Without_Bang = mean(t_test_data$batting_avg[t_test_data$has_bangs == "n"], na.rm = TRUE),
   Difference = With_Bang - Without_Bang,
   P_Value = t_test_result$p.value
 )
+
 
 kable(t_test_table, 
       caption = "T-Test Results: Batting Average With vs. Without Bangs",
       digits = 3) %>%
   kable_styling(bootstrap_options = c("striped", "hover"))
+
 ```
 
 ```{r regression-analysis}
@@ -543,10 +549,17 @@ kable(model_coefs,
 # Advanced Analysis Based on Crawfish Boxes Data
 
 ```{r crawfish-boxes-recreation}
-# Recreate some of the analyses from crawfishboxes.com
+
 # Heatmap of bang frequency by count (balls and strikes)
-bang_heatmap <- bangs_clean %>%
-  group_by(balls, strikes) %>%
+bangs_tagged <- bangs_clean %>%
+  filter(!is.na(description)) %>%
+  mutate(
+    is_strike = description %in% c("Called Strike", "Swinging Strike", "Foul", "Foul Tip"),
+    is_ball = description == "Ball"
+  )
+
+bang_heatmap <- bangs_tagged %>%
+  group_by(is_ball, is_strike) %>%
   summarize(
     total_bangs = n(),
     at_bats = n_distinct(at_bat_id)
@@ -603,16 +616,13 @@ ggplot(top_targeted_pitchers, aes(x = reorder(opposing_pitcher, bang_rate), y = 
 
 # Discussion of Findings
 
-- Did the data show a statistically significant improvement in batting performance when bangs were used?
-- Which players benefited the most from the system?
-- Were there particular game situations where the bangs were more effective?
-- How do your findings align with or contradict previous analyses, such as those from crawfishboxes.com?
-
+-   Did the data show a statistically significant improvement in batting performance when bangs were used?
+-   Which players benefited the most from the system?
+-   Were there particular game situations where the bangs were more effective?
+-   How do your findings align with or contradict previous analyses, such as those from crawfishboxes.com?
 
 # Conclusion
 
 ## Summary of Impact
 
 Our analysis sought to quantify whether the trash can banging system used by the Houston Astros in 2017 provided a measurable advantage in batting performance. Based on our findings, we can draw several conclusions:
-
-
