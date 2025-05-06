@@ -20,6 +20,7 @@ library(scales)
 library(plotly)
 library(broom)
 library(patchwork)
+
 ```
 
 # Introduction
@@ -239,7 +240,7 @@ ggplot(top_players, aes(x = reorder(batter, total_bangs), y = total_bangs)) +
 ```
 
 ```{r bangs-by-lineup-position}
-# Data Line up by position
+# Data manipulation: Lineup by position
 bangs_by_position <- bangs_clean %>%
   group_by(lineup_position) %>%
   summarize(
@@ -248,6 +249,7 @@ bangs_by_position <- bangs_clean %>%
   ) %>%
   mutate(bangs_per_player = total_bangs / players)
 
+# Visualization: Average bangs per player by lineup position
 ggplot(bangs_by_position, aes(x = as.factor(lineup_position), y = bangs_per_player)) +
   geom_col(fill = "#002D62") +
   labs(
@@ -260,6 +262,7 @@ ggplot(bangs_by_position, aes(x = as.factor(lineup_position), y = bangs_per_play
     plot.title = element_text(face = "bold", size = 16),
     axis.title = element_text(size = 12)
   )
+
 ```
 
 ## Game Situation Analysis
@@ -303,6 +306,7 @@ ggplot(bangs_by_score, aes(x = score_diff, y = total_bangs)) +
     plot.title = element_text(face = "bold", size = 16),
     axis.title = element_text(size = 12)
   )
+
 ```
 
 ```{r home-away-comparison}
@@ -317,6 +321,7 @@ home_away_stats <- player_stats_clean %>%
     slg = sum(total_bases) / sum(at_bats),
     ops = obp + slg
   )
+
 
 # Tidy format for plotting
 home_away_tidy <- home_away_stats %>%
@@ -520,6 +525,7 @@ ggplot(pitch_effectiveness, aes(x = pitch_type, y = hit_rate, fill = has_bang)) 
 Let's perform statistical tests to determine if the differences we observed are statistically significant.
 
 ```{r t-test-batting-avg}
+
 # Perform t-test comparing batting average with and without bangs
 t_test_result <- t.test(
   player_stats_clean$batting_avg[player_stats_clean$has_bang == TRUE],
@@ -541,6 +547,7 @@ kable(t_test_table,
       caption = "T-Test Results: Batting Average With vs. Without Bangs",
       digits = 3) %>%
   kable_styling(bootstrap_options = c("striped", "hover"))
+
 ```
 
 ```{r regression-analysis}
